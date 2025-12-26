@@ -1,8 +1,20 @@
-name: Deploy to AWS
+name: Multi-Env Deploy
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "main", "develop" ]
+  # Permite rodar manualmente se precisar criar a staging sem branch especifica
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+        - dev
+        - staging
+        - prod
 
 jobs:
   deploy:
@@ -14,12 +26,12 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Setup Node.js (CDK Engine)
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
 
-      - name: Install AWS CDK
+      - name: Install CDK
         run: npm install -g aws-cdk
 
       - name: Setup Python
@@ -28,13 +40,32 @@ jobs:
           python-version: '3.12'
           cache: 'pip'
 
-      - name: Install Python Dependencies
+      - name: Install Requirements
+        run: pip install -r requirements.txt
+
+      # Lógica para definir qual Stack será deployada
+      - name: Determine Target Stack
+        id: target
         run: |
-          pip install -r requirements.txt
+          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+            echo "STACK_NAME=CookieAdmin-Prod" >> $GITHUB_ENV
+            echo "Deploying to PRODUCTION"
+          elif [[ "${{ github.ref }}" == "refs/heads/develop" ]]; then
+            echo "STACK_NAME=CookieAdmin-Dev" >> $GITHUB_ENV
+            echo "Deploying to DEVELOPMENT"
+          elif [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+             # Capitalize first letter for stack name convention
+             ENV_INPUT=${{ inputs.environment }}
+             CAP_ENV="$(tr '[:lower:]' '[:upper:]' <<< ${ENV_INPUT:0:1})${ENV_INPUT:1}"
+             echo "STACK_NAME=CookieAdmin-$CAP_ENV" >> $GITHUB_ENV
+          else
+            echo "STACK_NAME=CookieAdmin-Staging" >> $GITHUB_ENV
+          fi
 
       - name: CDK Deploy
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           AWS_DEFAULT_REGION: "us-east-1"
-        run: cdk deploy --all --require-approval never
+        # O comando abaixo deploya APENAS a stack correta, não todas
+        run: cdk deploy ${{ env.STACK_NAME }} --require-approval never
