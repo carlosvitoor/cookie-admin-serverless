@@ -4,6 +4,7 @@ from aws_cdk import (
     aws_lambda as _lambda,
     aws_apigatewayv2 as apigw,
     aws_apigatewayv2_integrations as integrations,
+    aws_cognito as cognito,
     aws_s3 as s3,
     aws_logs as logs,
     CfnOutput,
@@ -12,6 +13,7 @@ from aws_cdk import (
 )
 from constructs import Construct
 from aws_cdk import aws_lambda_event_sources as eventsources
+from aws_cdk.aws_apigatewayv2_authorizers import HttpUserPoolAuthorizer
 
 
 class CookieAdminServerlessStack(Stack):
@@ -19,7 +21,7 @@ class CookieAdminServerlessStack(Stack):
     def __init__(self, scope: Construct, construct_id: str, environment_tag: str, **kwargs) -> None:
         super().__init__(scope, construct_id, **kwargs)
 
-        # 1. DynamoDB
+        # 1. BANCO DE DADOS
         table = dynamodb.Table(self, "CookiesTable",
                                table_name=f"CookiesTable-{environment_tag}",
                                partition_key=dynamodb.Attribute(name="id", type=dynamodb.AttributeType.STRING),
@@ -28,7 +30,24 @@ class CookieAdminServerlessStack(Stack):
                                removal_policy=RemovalPolicy.DESTROY
                                )
 
-        # 2. Analytics Bucket
+        # 2. AUTENTICAÇÃO (Cognito)
+        user_pool = cognito.UserPool(self, "CookieAuthPool",
+                                     user_pool_name=f"CookieUsers-{environment_tag}",
+                                     self_sign_up_enabled=False,
+                                     sign_in_aliases=cognito.SignInAliases(email=True),
+                                     removal_policy=RemovalPolicy.DESTROY
+                                     )
+
+        user_pool_client = user_pool.add_client("CookieAppClient",
+                                                user_pool_client_name=f"CookieAppClient-{environment_tag}",
+                                                auth_flows=cognito.AuthFlow(user_password=True)
+                                                )
+
+        authorizer = HttpUserPoolAuthorizer("CookieAuthorizer", user_pool,
+                                            user_pool_clients=[user_pool_client]
+                                            )
+
+        # 3. BUCKETS
         analytics_bucket = s3.Bucket(self, "AnalyticsBucket",
                                      bucket_name=f"cookie-admin-datalake-{environment_tag}",
                                      versioned=True,
@@ -36,7 +55,6 @@ class CookieAdminServerlessStack(Stack):
                                      auto_delete_objects=True
                                      )
 
-        # 3. Site Bucket (Frontend - Modo Website Simples)
         site_bucket = s3.Bucket(self, "SiteBucket",
                                 bucket_name=f"cookie-admin-site-{environment_tag}",
                                 website_index_document="index.html",
@@ -51,12 +69,11 @@ class CookieAdminServerlessStack(Stack):
                                 auto_delete_objects=True
                                 )
 
-        # Configuração de Origem (CORS) - Voltamos para o S3 direto
         allowed_origin = "*"
         if environment_tag == 'prod':
             allowed_origin = site_bucket.bucket_website_url
 
-        # 4. Lambda Principal
+        # 4. LAMBDA PRINCIPAL
         cookie_handler = _lambda.Function(self, "CookieHandler",
                                           function_name=f"CookieHandler-{environment_tag}",
                                           runtime=_lambda.Runtime.PYTHON_3_12,
@@ -72,32 +89,39 @@ class CookieAdminServerlessStack(Stack):
                                           )
         table.grant_read_write_data(cookie_handler)
 
-        # API Gateway com CORS
+        # 5. API GATEWAY
         http_api = apigw.HttpApi(self, "CookieApi",
                                  api_name=f"CookieApi-{environment_tag}",
                                  cors_preflight=apigw.CorsPreflightOptions(
                                      allow_origins=["*"],
-                                     allow_methods=[
-                                         apigw.CorsHttpMethod.GET,
-                                         apigw.CorsHttpMethod.POST,
-                                         apigw.CorsHttpMethod.PUT,
-                                         apigw.CorsHttpMethod.PATCH,
-                                         apigw.CorsHttpMethod.OPTIONS
-                                     ],
+                                     allow_methods=[apigw.CorsHttpMethod.ANY],
                                      allow_headers=["Content-Type", "Authorization"]
                                  )
                                  )
 
         lambda_int = integrations.HttpLambdaIntegration("CookieIntegration", cookie_handler)
 
-        http_api.add_routes(path="/cookies", methods=[apigw.HttpMethod.ANY], integration=lambda_int)
-        http_api.add_routes(path="/cookies/{id}", methods=[apigw.HttpMethod.ANY], integration=lambda_int)
-        http_api.add_routes(path="/orders", methods=[apigw.HttpMethod.ANY], integration=lambda_int)
-        http_api.add_routes(path="/orders/{id}/status", methods=[apigw.HttpMethod.ANY], integration=lambda_int)
-        http_api.add_routes(path="/logistics/routes", methods=[apigw.HttpMethod.ANY], integration=lambda_int)
-        http_api.add_routes(path="/orders/{id}/loss", methods=[apigw.HttpMethod.ANY], integration=lambda_int)
+        # --- TODAS AS ROTAS SÃO PRIVADAS AGORA ---
 
-        # 5. Stream Lambda
+        # Rotas de Cookies (Listar, Criar, Editar, Deletar)
+        http_api.add_routes(path="/cookies", methods=[apigw.HttpMethod.GET, apigw.HttpMethod.POST],
+                            integration=lambda_int, authorizer=authorizer)
+        http_api.add_routes(path="/cookies/{id}", methods=[apigw.HttpMethod.PUT, apigw.HttpMethod.DELETE],
+                            integration=lambda_int, authorizer=authorizer)
+
+        # Rotas de Pedidos (Listar, Criar, Status, Extravio)
+        http_api.add_routes(path="/orders", methods=[apigw.HttpMethod.GET, apigw.HttpMethod.POST],
+                            integration=lambda_int, authorizer=authorizer)
+        http_api.add_routes(path="/orders/{id}/status", methods=[apigw.HttpMethod.PATCH],
+                            integration=lambda_int, authorizer=authorizer)
+        http_api.add_routes(path="/orders/{id}/loss", methods=[apigw.HttpMethod.POST],
+                            integration=lambda_int, authorizer=authorizer)
+
+        # Logística
+        http_api.add_routes(path="/logistics/routes", methods=[apigw.HttpMethod.POST],
+                            integration=lambda_int, authorizer=authorizer)
+
+        # 6. STREAM LAMBDA
         stream_handler = _lambda.Function(self, "StreamHandler",
                                           function_name=f"StreamHandler-{environment_tag}",
                                           runtime=_lambda.Runtime.PYTHON_3_12,
@@ -117,8 +141,8 @@ class CookieAdminServerlessStack(Stack):
                                                                        retry_attempts=2
                                                                        ))
 
-        # Outputs
+        # OUTPUTS
         CfnOutput(self, "ApiUrl", value=http_api.url)
-        # Output volta a ser o link do S3
         CfnOutput(self, "SiteUrlS3", value=site_bucket.bucket_website_url)
-        CfnOutput(self, "SiteBucketName", value=site_bucket.bucket_name)
+        CfnOutput(self, "UserPoolId", value=user_pool.user_pool_id)
+        CfnOutput(self, "UserPoolClientId", value=user_pool_client.user_pool_client_id)
