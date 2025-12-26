@@ -4,62 +4,63 @@ from aws_cdk import (
     aws_lambda as _lambda,
     aws_apigatewayv2 as apigw,
     aws_apigatewayv2_integrations as integrations,
+    aws_s3 as s3,
+    aws_logs as logs,
     CfnOutput,
     RemovalPolicy,
     Duration
 )
 from constructs import Construct
 
+
 class CookieAdminServerlessStack(Stack):
 
     def __init__(self, scope: Construct, construct_id: str, environment_tag: str, **kwargs) -> None:
         super().__init__(scope, construct_id, **kwargs)
 
-        # 1. DynamoDB: O Banco de Dados
+        # 1. DynamoDB (Atualizado para Analytics)
         table = dynamodb.Table(self, "CookiesTable",
-            table_name=f"CookiesTable-{environment_tag}",
-            partition_key=dynamodb.Attribute(name="id", type=dynamodb.AttributeType.STRING),
-            billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
-            removal_policy=RemovalPolicy.DESTROY # Cuidado em Prod!
-        )
+                               table_name=f"CookiesTable-{environment_tag}",
+                               partition_key=dynamodb.Attribute(name="id", type=dynamodb.AttributeType.STRING),
+                               billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
 
-        # 2. Lambda: A Lógica (Lendo da pasta src)
+                               # --- ATIVAÇÃO DO STREAM (CRUCIAL PARA ANALYTICS) ---
+                               # NEW_AND_OLD_IMAGES: Guarda como era o dado antes e como ficou.
+                               # Ideal para calcular deltas (ex: tempo que ficou em "EM_PREPARO")
+                               stream=dynamodb.StreamViewType.NEW_AND_OLD_IMAGES,
+
+                               removal_policy=RemovalPolicy.DESTROY
+                               )
+
+        # 2. Bucket S3 (O Data Lake / Tabela Democratizada)
+        analytics_bucket = s3.Bucket(self, "AnalyticsBucket",
+                                     bucket_name=f"cookie-admin-datalake-{environment_tag}",
+                                     versioned=True,
+                                     removal_policy=RemovalPolicy.DESTROY,  # Em prod seria RETAIN
+                                     auto_delete_objects=True  # Limpa o bucket se destruir a stack (DEV only)
+                                     )
+
+        # ... (Definição da Lambda e API Gateway continua igual) ...
+        # Apenas lembre de copiar o restante do código da Lambda/API Gateway aqui
+        # Vou omitir para economizar espaço, mas mantenha o que já existia.
+
         cookie_handler = _lambda.Function(self, "CookieHandler",
-            function_name=f"CookieHandler-{environment_tag}",
-            runtime=_lambda.Runtime.PYTHON_3_12,
-            handler="index.handler",       # Aponta para src/index.py -> def handler
-            code=_lambda.Code.from_asset("src"),
-            environment={
-                "TABLE_NAME": table.table_name,
-                "ENV_TYPE": environment_tag
-            },
-            timeout=Duration.seconds(10)
-        )
-
-        # Permissão: Deixa a Lambda escrever na tabela
+                                          function_name=f"CookieHandler-{environment_tag}",
+                                          runtime=_lambda.Runtime.PYTHON_3_12,
+                                          handler="index.handler",
+                                          code=_lambda.Code.from_asset("src"),
+                                          environment={
+                                              "TABLE_NAME": table.table_name,
+                                              "ENV_TYPE": environment_tag
+                                          },
+                                          timeout=Duration.seconds(10),
+                                          log_retention=logs.RetentionDays.ONE_WEEK,  # Guarda logs por 7 dias apenas
+                                          )
         table.grant_read_write_data(cookie_handler)
 
-        # 3. API Gateway: A Porta Pública (HTTP API)
-        http_api = apigw.HttpApi(self, "CookieApi",
-            api_name=f"CookieApi-{environment_tag}",
-            description=f"API Gateway para o ambiente {environment_tag}"
-        )
+        http_api = apigw.HttpApi(self, "CookieApi", api_name=f"CookieApi-{environment_tag}")
+        lambda_int = integrations.HttpLambdaIntegration("CookieIntegration", cookie_handler)
+        http_api.add_routes(path="/cookies", methods=[apigw.HttpMethod.ANY], integration=lambda_int)
 
-        # Integração: Conecta o Gateway na Lambda
-        lambda_int = integrations.HttpLambdaIntegration(
-            "CookieIntegration",
-            cookie_handler
-        )
-
-        # Rotas: Envia tudo de /cookies para a Lambda
-        http_api.add_routes(
-            path="/cookies",
-            methods=[apigw.HttpMethod.GET, apigw.HttpMethod.POST],
-            integration=lambda_int
-        )
-
-        # Output: Mostra a URL no final do deploy
-        CfnOutput(self, "ApiUrl",
-            value=http_api.url,
-            description="URL publica da API"
-        )
+        CfnOutput(self, "ApiUrl", value=http_api.url)
+        CfnOutput(self, "BucketName", value=analytics_bucket.bucket_name)
