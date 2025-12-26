@@ -2,14 +2,14 @@ import { useState, useEffect } from 'react'
 import axios from 'axios'
 import { AdminPanel } from './components/AdminPanel'
 
-// IMPORTANTE: Verifique se esta URL é a mesma que o comando 'cdk deploy' exibiu no terminal
+// IMPORTANTE: Use a URL que aparecerá no terminal após o 'cdk deploy'
 const API_URL = "https://vqrrh1kjy3.execute-api.us-east-1.amazonaws.com";
 
 function App() {
   const [cookies, setCookies] = useState([])
-  const [cart, setCart] = useState({}) // Formato: { 'id_cookie': quantidade }
+  const [cart, setCart] = useState({})
   const [cliente, setCliente] = useState('Cliente Balcão')
-  const [view, setView] = useState('vendas') // 'vendas' ou 'admin'
+  const [view, setView] = useState('vendas')
 
   useEffect(() => {
     fetchCookies();
@@ -24,7 +24,6 @@ function App() {
     }
   };
 
-  // --- Lógica do Carrinho ---
   const addToCart = (cookie) => {
     setCart(prev => ({
       ...prev,
@@ -35,13 +34,13 @@ function App() {
   const removeFromCart = (cookieId) => {
     setCart(prev => {
       const currentQty = prev[cookieId] || 0;
-      if (currentQty <= 0) return prev; // Proteção
+      if (currentQty <= 0) return prev;
 
       const newCart = { ...prev };
       if (currentQty > 1) {
         newCart[cookieId] -= 1;
       } else {
-        delete newCart[cookieId]; // Remove do objeto se for zerar
+        delete newCart[cookieId];
       }
       return newCart;
     });
@@ -51,18 +50,16 @@ function App() {
     return cart[cookieId] || 0;
   };
 
-  // --- Finalização do Pedido ---
   const checkout = async () => {
-    // 1. Prepara o payload removendo itens com quantidade zero (Proteção de Erro)
     const itensPayload = Object.keys(cart)
       .map(cookieId => ({
         cookie_id: cookieId,
         qtd: cart[cookieId]
       }))
-      .filter(item => item.qtd > 0); // <--- FILTRO IMPORTANTE
+      .filter(item => item.qtd > 0);
 
     if (itensPayload.length === 0) {
-      alert("Carrinho vazio! Adicione itens antes de finalizar.");
+      alert("Carrinho vazio!");
       return;
     }
 
@@ -72,8 +69,6 @@ function App() {
         itens: itensPayload
       };
 
-      console.log("Enviando pedido:", payload); // Debug no console
-
       await axios.post(`${API_URL}/orders`, payload);
 
       alert(`Pedido realizado com sucesso para ${cliente}!`);
@@ -82,12 +77,11 @@ function App() {
 
     } catch (error) {
       console.error(error);
-      const msgErro = error.response?.data?.error || error.message;
-      alert(`Erro ao enviar pedido: ${msgErro}`);
+      const msg = error.response?.data?.error || error.message;
+      alert(`Erro ao enviar pedido: ${msg}`);
     }
   };
 
-  // Cálculo do Total
   const totalCart = Object.keys(cart).reduce((acc, id) => {
     const cookie = cookies.find(c => c.id === id);
     return acc + (cookie ? cookie.preco_venda * cart[id] : 0);
@@ -98,7 +92,8 @@ function App() {
 
       {/* --- HEADER --- */}
       <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-        <h1>🍪 Cookie Store</h1>
+        {/* NOME ALTERADO AQUI */}
+        <h1>🍪 Cookie Girls</h1>
         <div>
             <button
               onClick={() => setView('vendas')}
@@ -128,7 +123,6 @@ function App() {
       {view === 'vendas' && (
         <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '20px' }}>
 
-          {/* Lista de Produtos (Grid) */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '15px' }}>
             {cookies.map(cookie => {
               const qtd = getQuantity(cookie.id);
@@ -146,7 +140,6 @@ function App() {
                       R$ {cookie.preco_venda.toFixed(2)}
                     </div>
 
-                    {/* --- CONTROLE DE QUANTIDADE (- 0 +) --- */}
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#333', borderRadius: '4px', padding: '4px' }}>
                       <button
                         onClick={() => removeFromCart(cookie.id)}
@@ -192,7 +185,7 @@ function App() {
             })}
           </div>
 
-          {/* Carrinho Lateral */}
+          {/* Carrinho */}
           <div style={{ border: '1px solid #444', padding: '20px', borderRadius: '8px', height: 'fit-content', background: '#242424', position: 'sticky', top: '20px' }}>
             <h2>🛒 Carrinho</h2>
             <div style={{ marginBottom: '15px' }}>
