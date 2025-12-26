@@ -118,3 +118,92 @@ class OrderService:
             for item in obj:
                 self._fix_decimals(item)
         return obj
+
+    def update_order_status(self, pedido_id: str, novo_status: str):
+        # 1. Validar se o status existe no Enum
+        if novo_status not in StatusPedido.__members__:
+            # Se o frontend mandar string solta, tentamos mapear ou barramos
+            if novo_status not in [s.value for s in StatusPedido]:
+                raise BusinessRuleException(f"Status inválido: {novo_status}")
+
+        # 2. Buscar status atual (para auditoria)
+        pedido = self.order_repo.get_by_id(pedido_id)
+        if not pedido:
+            raise EntityNotFoundException("Pedido não encontrado")
+
+        status_anterior = pedido.get('status', 'DESCONHECIDO')
+
+        # Se já estiver no status, não faz nada
+        if status_anterior == novo_status:
+            return {"message": "O pedido já está neste status."}
+
+        # 3. Criar entrada de histórico
+        entry = {
+            "status_anterior": status_anterior,
+            "novo_status": novo_status,
+            "data_alteracao": datetime.now().isoformat()
+        }
+
+        # 4. Atualizar no banco
+        self.order_repo.update_status(pedido_id, novo_status, entry)
+
+        return {
+            "id": pedido_id,
+            "status_novo": novo_status,
+            "historico_adicionado": entry
+        }
+
+    def register_order_loss(self, pedido_id: str, motivo: str) -> dict:
+        """
+        Calcula o prejuízo total (CMV + Logística) e registra o extravio.
+        """
+        # 1. Buscar o pedido para acessar os snapshots de custo
+        pedido = self.order_repo.get_by_id(pedido_id)
+        if not pedido:
+            raise EntityNotFoundException("Pedido não encontrado.")
+
+        if pedido.get('status') == 'EXTRAVIADO':
+            raise BusinessRuleException("Este pedido já foi marcado como extraviado.")
+
+        # 2. Calcular Prejuízo de Produtos (CMV Perdido)
+        # Usamos o custo snapshotado no momento da criação
+        prejuizo_produtos = Decimal('0.00')
+        itens = pedido.get('itens', [])
+
+        for item in itens:
+            custo_unit = Decimal(str(item.get('custo_producao_unitario', '0')))
+            qtd = Decimal(str(item.get('qtd', '0')))
+            prejuizo_produtos += (custo_unit * qtd)
+
+        # 3. Calcular Prejuízo Logístico (O que pagamos ao motoboy à toa)
+        prejuizo_entrega = Decimal(str(pedido.get('custo_entrega_rateado', '0.00')))
+
+        prejuizo_total = prejuizo_produtos + prejuizo_entrega
+
+        # 4. Montar o Objeto de Ocorrência (Auditoria)
+        ocorrencia = {
+            "data": datetime.now().isoformat(),
+            "tipo": "EXTRAVIO",
+            "descricao": motivo,
+            "responsavel_prejuizo": "LOJA",
+            "calculo_financeiro": {
+                "prejuizo_produtos": prejuizo_produtos,
+                "prejuizo_entrega": prejuizo_entrega,
+                "prejuizo_total": prejuizo_total
+            }
+        }
+
+        # 5. Persistir (Convertendo Decimals para serialização do Dynamo se necessário,
+        # mas como estamos passando via boto3 update_item, ele aceita Decimal,
+        # exceto dentro de listas/mapas complexos as vezes, vamos converter pra garantir)
+
+        # Hack rápido para converter Decimals do dict para passar pro Dynamo
+        ocorrencia_dynamo = json.loads(json.dumps(ocorrencia, default=str), parse_float=Decimal)
+
+        self.order_repo.register_occurrence(pedido_id, ocorrencia_dynamo)
+
+        return {
+            "message": "Extravio registrado com sucesso.",
+            "pedido_id": pedido_id,
+            "prejuizo_contabilizado": float(prejuizo_total)
+        }
