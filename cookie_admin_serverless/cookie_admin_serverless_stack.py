@@ -51,7 +51,7 @@ class CookieAdminServerlessStack(Stack):
                                 auto_delete_objects=True
                                 )
 
-        # Configuração de Origem (CORS) para o Bucket (Opcional, mas bom para segurança)
+        # Configuração de Origem (CORS) para o Bucket
         allowed_origin = "*"
         if environment_tag == 'prod':
             allowed_origin = site_bucket.bucket_website_url
@@ -72,17 +72,17 @@ class CookieAdminServerlessStack(Stack):
                                           )
         table.grant_read_write_data(cookie_handler)
 
-        # --- MUDANÇA PRINCIPAL: CORS NO API GATEWAY ---
+        # --- CORREÇÃO AQUI: Usando apigw.CorsHttpMethod ---
         http_api = apigw.HttpApi(self, "CookieApi",
                                  api_name=f"CookieApi-{environment_tag}",
                                  cors_preflight=apigw.CorsPreflightOptions(
                                      allow_origins=["*"],
                                      allow_methods=[
-                                         apigw.HttpMethod.GET,
-                                         apigw.HttpMethod.POST,
-                                         apigw.HttpMethod.PUT,
-                                         apigw.HttpMethod.PATCH,
-                                         apigw.HttpMethod.OPTIONS
+                                         apigw.CorsHttpMethod.GET,
+                                         apigw.CorsHttpMethod.POST,
+                                         apigw.CorsHttpMethod.PUT,
+                                         apigw.CorsHttpMethod.PATCH,
+                                         apigw.CorsHttpMethod.OPTIONS
                                      ],
                                      allow_headers=["Content-Type", "Authorization"]
                                  )
@@ -90,7 +90,7 @@ class CookieAdminServerlessStack(Stack):
 
         lambda_int = integrations.HttpLambdaIntegration("CookieIntegration", cookie_handler)
 
-        # Rotas explícitas garantem que o Gateway saiba rotear corretamente
+        # Para rotas (add_routes), continuamos usando apigw.HttpMethod
         http_api.add_routes(path="/cookies", methods=[apigw.HttpMethod.ANY], integration=lambda_int)
         http_api.add_routes(path="/cookies/{id}", methods=[apigw.HttpMethod.ANY], integration=lambda_int)
         http_api.add_routes(path="/orders", methods=[apigw.HttpMethod.ANY], integration=lambda_int)
