@@ -2,14 +2,14 @@ import { useState, useEffect } from 'react'
 import axios from 'axios'
 import { AdminPanel } from './components/AdminPanel'
 
-// IMPORTANTE: Mantenha a URL que você já tinha configurado
+// URL da API (Dev)
 const API_URL = "https://vqrrh1kjy3.execute-api.us-east-1.amazonaws.com";
 
 function App() {
   const [cookies, setCookies] = useState([])
   const [cart, setCart] = useState({}) // Formato: { 'id_cookie': quantidade }
   const [cliente, setCliente] = useState('Cliente Balcão')
-  const [view, setView] = useState('vendas')
+  const [view, setView] = useState('vendas') // 'vendas' ou 'admin'
 
   useEffect(() => {
     fetchCookies();
@@ -48,7 +48,7 @@ function App() {
     return cart[cookieId] || 0;
   };
 
-  // --- Finalização ---
+  // --- Finalização do Pedido ---
   const checkout = async () => {
     const itensPayload = Object.keys(cart).map(cookieId => ({
       cookie_id: cookieId,
@@ -70,7 +70,7 @@ function App() {
 
       alert(`Pedido realizado com sucesso para ${cliente}!`);
       setCart({});
-      setCliente('Cliente Balcão'); // Reseta nome também
+      setCliente('Cliente Balcão');
 
     } catch (error) {
       console.error(error);
@@ -87,17 +87,32 @@ function App() {
   return (
     <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '20px', fontFamily: 'Arial' }}>
 
+      {/* --- HEADER --- */}
       <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
         <h1>🍪 Cookie Store</h1>
         <div>
-            <button onClick={() => setView('vendas')} style={{ marginRight: '10px', background: view === 'vendas' ? '#646cff' : '#333', color: 'white' }}>Vendas</button>
-            <button onClick={() => setView('admin')} style={{ background: view === 'admin' ? '#646cff' : '#333', color: 'white' }}>Admin</button>
+            <button
+              onClick={() => setView('vendas')}
+              style={{ marginRight: '10px', background: view === 'vendas' ? '#646cff' : '#333', color: 'white', border: 'none', padding: '10px 20px', borderRadius: '5px', cursor: 'pointer' }}
+            >
+              Vendas
+            </button>
+            <button
+              onClick={() => setView('admin')}
+              style={{ background: view === 'admin' ? '#646cff' : '#333', color: 'white', border: 'none', padding: '10px 20px', borderRadius: '5px', cursor: 'pointer' }}
+            >
+              Admin
+            </button>
         </div>
       </header>
 
       {/* --- MODO ADMIN --- */}
       {view === 'admin' && (
-        <AdminPanel apiUrl={API_URL} onProductAdded={fetchCookies} />
+        <AdminPanel
+            apiUrl={API_URL}
+            cookies={cookies}             // Passa a lista para edição
+            onUpdateList={fetchCookies}   // Atualiza lista após create/update
+        />
       )}
 
       {/* --- MODO VENDAS --- */}
@@ -122,11 +137,11 @@ function App() {
                       R$ {cookie.preco_venda.toFixed(2)}
                     </div>
 
-                    {/* --- AQUI ESTÁ A MUDANÇA DOS BOTÕES --- */}
+                    {/* Botões de Quantidade */}
                     {qtd === 0 ? (
                       <button
                         onClick={() => addToCart(cookie)}
-                        style={{ width: '100%', background: '#646cff', color: 'white', border: 'none', padding: '8px', cursor: 'pointer' }}
+                        style={{ width: '100%', background: '#646cff', color: 'white', border: 'none', padding: '8px', cursor: 'pointer', borderRadius: '4px' }}
                       >
                         Adicionar
                       </button>
@@ -139,7 +154,7 @@ function App() {
                           -
                         </button>
 
-                        <span style={{ fontWeight: 'bold', fontSize: '1.1em' }}>{qtd}</span>
+                        <span style={{ fontWeight: 'bold', fontSize: '1.1em', color: 'white' }}>{qtd}</span>
 
                         <button
                           onClick={() => addToCart(cookie)}
@@ -164,14 +179,14 @@ function App() {
                     type="text"
                     value={cliente}
                     onChange={(e) => setCliente(e.target.value)}
-                    style={{ width: '100%', padding: '8px', boxSizing: 'border-box', background: '#111', border: '1px solid #555', color: 'white' }}
+                    style={{ width: '100%', padding: '8px', boxSizing: 'border-box', background: '#111', border: '1px solid #555', color: 'white', borderRadius: '4px' }}
                 />
             </div>
 
             {Object.keys(cart).length === 0 ? (
                 <p style={{ color: '#666', fontStyle: 'italic' }}>Seu carrinho está vazio.</p>
             ) : (
-                <ul style={{ listStyle: 'none', padding: 0, maxHeight: '300px', overflowY: 'auto' }}>
+                <ul style={{ listStyle: 'none', padding: 0, maxHeight: '400px', overflowY: 'auto' }}>
                     {Object.keys(cart).map(id => {
                         const item = cookies.find(c => c.id === id);
                         if(!item) return null;
@@ -207,6 +222,7 @@ function App() {
                       padding: '12px',
                       fontSize: '1.1em',
                       border: 'none',
+                      borderRadius: '5px',
                       cursor: Object.keys(cart).length === 0 ? 'not-allowed' : 'pointer'
                     }}
                 >
