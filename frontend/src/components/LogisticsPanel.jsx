@@ -16,7 +16,7 @@ export function LogisticsPanel({ apiUrl }) {
       const response = await axios.get(`${apiUrl}/orders`);
       // Filtra apenas pedidos que podem ser despachados (Ex: EM_PREPARO)
       // Ignora os que já estão em rota, concluídos ou apenas recebidos
-      const readyToShip = response.data.filter(o => o.status === 'EM_PREPARO');
+      const readyToShip = response.data.filter(o => o.status === 'PRONTO');
       setOrders(readyToShip);
       setSelectedIds([]); // Limpa seleção ao recarregar
     } catch (error) {
