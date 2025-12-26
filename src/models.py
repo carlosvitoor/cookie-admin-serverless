@@ -7,25 +7,24 @@ from enum import Enum
 
 class StatusPedido(str, Enum):
     RECEBIDO = "RECEBIDO"
-    EM_PREPARO = "EM_PREPARO"  # Corrigi o nome para bater com o padrão
+    EM_PREPARO = "EM_PREPARO"
     EM_ROTA = "EM_ROTA"
     CONCLUIDO = "CONCLUIDO"
-    EXTRAVIADO = "EXTRAVIADO"  # Novo
+    EXTRAVIADO = "EXTRAVIADO"
 
 
-# Modelo do Item DENTRO do pedido (Com Snapshot de Custo)
 class ItemPedidoSnapshot(BaseModel):
     cookie_id: str
     sabor: str
     qtd: int
     preco_venda_unitario: Decimal
-    custo_producao_unitario: Decimal  # SNAPSHOT DO CUSTO
+    custo_producao_unitario: Decimal
     subtotal_venda: Decimal
 
 
 class Ocorrencia(BaseModel):
     data: str = Field(default_factory=lambda: datetime.now().isoformat())
-    tipo: str  # ROUBO, ACIDENTE, ETC
+    tipo: str
     descricao: str
     responsavel_prejuizo: str = "LOJA"
     prejuizo_produtos: Decimal
@@ -46,6 +45,10 @@ class PedidoModel(BaseModel):
     custo_entrega_rateado: Optional[Decimal] = None
 
     status: StatusPedido = StatusPedido.RECEBIDO
-    ocorrencia: Optional[Ocorrencia] = None  # Só existe se der ruim
+    ocorrencia: Optional[Ocorrencia] = None
 
     criado_em: str = Field(default_factory=lambda: datetime.now().isoformat())
+
+    # MUDANÇA: Apenas a data combinada, sem minutos calculados
+    data_entrega: str  # Obrigatório (ISO Format)
+    data_conclusao: Optional[str] = None
