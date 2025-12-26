@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import axios from 'axios'
 import { AdminPanel } from './components/AdminPanel'
 
-// URL da API (Dev)
+// IMPORTANTE: Verifique se esta URL é a mesma que o comando 'cdk deploy' exibiu no terminal
 const API_URL = "https://vqrrh1kjy3.execute-api.us-east-1.amazonaws.com";
 
 function App() {
@@ -34,11 +34,14 @@ function App() {
 
   const removeFromCart = (cookieId) => {
     setCart(prev => {
+      const currentQty = prev[cookieId] || 0;
+      if (currentQty <= 0) return prev; // Proteção
+
       const newCart = { ...prev };
-      if (newCart[cookieId] > 1) {
+      if (currentQty > 1) {
         newCart[cookieId] -= 1;
       } else {
-        delete newCart[cookieId];
+        delete newCart[cookieId]; // Remove do objeto se for zerar
       }
       return newCart;
     });
@@ -50,21 +53,26 @@ function App() {
 
   // --- Finalização do Pedido ---
   const checkout = async () => {
-    const itensPayload = Object.keys(cart).map(cookieId => ({
-      cookie_id: cookieId,
-      qtd: cart[cookieId]
-    }));
+    // 1. Prepara o payload removendo itens com quantidade zero (Proteção de Erro)
+    const itensPayload = Object.keys(cart)
+      .map(cookieId => ({
+        cookie_id: cookieId,
+        qtd: cart[cookieId]
+      }))
+      .filter(item => item.qtd > 0); // <--- FILTRO IMPORTANTE
 
     if (itensPayload.length === 0) {
-      alert("Carrinho vazio!");
+      alert("Carrinho vazio! Adicione itens antes de finalizar.");
       return;
     }
 
     try {
       const payload = {
-        cliente_nome: cliente,
+        cliente_nome: cliente || 'Cliente Balcão',
         itens: itensPayload
       };
+
+      console.log("Enviando pedido:", payload); // Debug no console
 
       await axios.post(`${API_URL}/orders`, payload);
 
@@ -74,7 +82,8 @@ function App() {
 
     } catch (error) {
       console.error(error);
-      alert('Erro no pedido: ' + (error.response?.data?.error || error.message));
+      const msgErro = error.response?.data?.error || error.message;
+      alert(`Erro ao enviar pedido: ${msgErro}`);
     }
   };
 
@@ -110,8 +119,8 @@ function App() {
       {view === 'admin' && (
         <AdminPanel
             apiUrl={API_URL}
-            cookies={cookies}             // Passa a lista para edição
-            onUpdateList={fetchCookies}   // Atualiza lista após create/update
+            cookies={cookies}
+            onUpdateList={fetchCookies}
         />
       )}
 
@@ -137,33 +146,46 @@ function App() {
                       R$ {cookie.preco_venda.toFixed(2)}
                     </div>
 
-                    {/* Botões de Quantidade */}
-                    {qtd === 0 ? (
+                    {/* --- CONTROLE DE QUANTIDADE (- 0 +) --- */}
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#333', borderRadius: '4px', padding: '4px' }}>
+                      <button
+                        onClick={() => removeFromCart(cookie.id)}
+                        disabled={qtd === 0}
+                        style={{
+                          background: qtd === 0 ? '#555' : '#d9534f',
+                          color: 'white',
+                          border: 'none',
+                          width: '35px',
+                          height: '35px',
+                          borderRadius: '4px',
+                          cursor: qtd === 0 ? 'not-allowed' : 'pointer',
+                          fontWeight: 'bold',
+                          fontSize: '1.2em'
+                        }}
+                      >
+                        -
+                      </button>
+
+                      <span style={{ fontWeight: 'bold', fontSize: '1.3em', color: 'white', minWidth: '30px' }}>{qtd}</span>
+
                       <button
                         onClick={() => addToCart(cookie)}
-                        style={{ width: '100%', background: '#646cff', color: 'white', border: 'none', padding: '8px', cursor: 'pointer', borderRadius: '4px' }}
+                        style={{
+                          background: '#28a745',
+                          color: 'white',
+                          border: 'none',
+                          width: '35px',
+                          height: '35px',
+                          borderRadius: '4px',
+                          cursor: 'pointer',
+                          fontWeight: 'bold',
+                          fontSize: '1.2em'
+                        }}
                       >
-                        Adicionar
+                        +
                       </button>
-                    ) : (
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#333', borderRadius: '4px', padding: '2px' }}>
-                        <button
-                          onClick={() => removeFromCart(cookie.id)}
-                          style={{ background: '#d9534f', color: 'white', border: 'none', width: '30px', height: '30px', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}
-                        >
-                          -
-                        </button>
+                    </div>
 
-                        <span style={{ fontWeight: 'bold', fontSize: '1.1em', color: 'white' }}>{qtd}</span>
-
-                        <button
-                          onClick={() => addToCart(cookie)}
-                          style={{ background: '#28a745', color: 'white', border: 'none', width: '30px', height: '30px', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}
-                        >
-                          +
-                        </button>
-                      </div>
-                    )}
                   </div>
                 </div>
               )
