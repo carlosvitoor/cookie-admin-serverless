@@ -72,3 +72,46 @@ jobs:
         run: |
           # A flag -c config=... passa o ambiente para o app.py
           cdk deploy --require-approval never -c config=${{ env.ENV_TAG }}
+
+  deploy-frontend:
+    needs: deploy # Só roda depois que a infra subir
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Setup Node (Frontend)
+        uses: actions/setup-node@v3
+        with:
+          node-version: '20'
+
+      - name: Build React App
+        working-directory: ./frontend
+        run: |
+          npm install
+          npm run build
+          # O build gera uma pasta 'dist' com html/css/js otimizados
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      # Descobre o nome do bucket criado pelo CDK (ex: cookie-admin-site-dev)
+      - name: Sync to S3
+        run: |
+          # Simples: Se for main é prod, senão é dev (ajuste conforme sua lógica)
+          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+            BUCKET_NAME="cookie-admin-site-prod"
+          else
+            BUCKET_NAME="cookie-admin-site-dev"
+          fi
+          
+          echo "Deploying frontend to $BUCKET_NAME..."
+          aws s3 sync ./frontend/dist s3://$BUCKET_NAME --delete
