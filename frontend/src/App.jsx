@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import axios from 'axios'
 import { AdminPanel } from './components/AdminPanel'
+import { OrdersPanel } from './components/OrdersPanel'
 
 // IMPORTANTE: Use a URL que aparecerá no terminal após o 'cdk deploy'
 const API_URL = "https://vqrrh1kjy3.execute-api.us-east-1.amazonaws.com";
@@ -8,7 +9,11 @@ const API_URL = "https://vqrrh1kjy3.execute-api.us-east-1.amazonaws.com";
 function App() {
   const [cookies, setCookies] = useState([])
   const [cart, setCart] = useState({})
-  const [cliente, setCliente] = useState('Cliente Balcão')
+  const [cliente, setCliente] = useState('') // Vazio para forçar preenchimento
+
+  // MUDANÇA: Data de Entrega (String ISO)
+  const [dataEntrega, setDataEntrega] = useState('')
+
   const [view, setView] = useState('vendas')
 
   useEffect(() => {
@@ -63,17 +68,29 @@ function App() {
       return;
     }
 
+    if (!cliente.trim()) {
+        alert("Por favor, informe o nome do cliente.");
+        return;
+    }
+
+    if (!dataEntrega) {
+        alert("Por favor, informe a Data de Entrega da encomenda.");
+        return;
+    }
+
     try {
       const payload = {
-        cliente_nome: cliente || 'Cliente Balcão',
+        cliente_nome: cliente,
+        data_entrega: new Date(dataEntrega).toISOString(), // Formato ISO para o backend
         itens: itensPayload
       };
 
       await axios.post(`${API_URL}/orders`, payload);
 
-      alert(`Pedido realizado com sucesso para ${cliente}!`);
+      alert(`Encomenda agendada para ${cliente}!`);
       setCart({});
-      setCliente('Cliente Balcão');
+      setCliente('');
+      setDataEntrega('');
 
     } catch (error) {
       console.error(error);
@@ -92,14 +109,19 @@ function App() {
 
       {/* --- HEADER --- */}
       <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-        {/* NOME ALTERADO AQUI */}
         <h1>🍪 Cookie Girls</h1>
-        <div>
+        <div style={{ display: 'flex', gap: '10px' }}>
             <button
               onClick={() => setView('vendas')}
-              style={{ marginRight: '10px', background: view === 'vendas' ? '#646cff' : '#333', color: 'white', border: 'none', padding: '10px 20px', borderRadius: '5px', cursor: 'pointer' }}
+              style={{ background: view === 'vendas' ? '#646cff' : '#333', color: 'white', border: 'none', padding: '10px 20px', borderRadius: '5px', cursor: 'pointer' }}
             >
-              Vendas
+              Encomendas
+            </button>
+            <button
+              onClick={() => setView('pedidos')}
+              style={{ background: view === 'pedidos' ? '#646cff' : '#333', color: 'white', border: 'none', padding: '10px 20px', borderRadius: '5px', cursor: 'pointer' }}
+            >
+              Cozinha
             </button>
             <button
               onClick={() => setView('admin')}
@@ -119,7 +141,12 @@ function App() {
         />
       )}
 
-      {/* --- MODO VENDAS --- */}
+      {/* --- MODO COZINHA --- */}
+      {view === 'pedidos' && (
+        <OrdersPanel apiUrl={API_URL} />
+      )}
+
+      {/* --- MODO VENDAS (Encomendas) --- */}
       {view === 'vendas' && (
         <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '20px' }}>
 
@@ -187,19 +214,31 @@ function App() {
 
           {/* Carrinho */}
           <div style={{ border: '1px solid #444', padding: '20px', borderRadius: '8px', height: 'fit-content', background: '#242424', position: 'sticky', top: '20px' }}>
-            <h2>🛒 Carrinho</h2>
+            <h2>🛒 Encomenda</h2>
             <div style={{ marginBottom: '15px' }}>
-                <label style={{ display: 'block', marginBottom: '5px', color: '#ccc' }}>Cliente:</label>
+                <label style={{ display: 'block', marginBottom: '5px', color: '#ccc' }}>Nome do Cliente:</label>
                 <input
                     type="text"
                     value={cliente}
                     onChange={(e) => setCliente(e.target.value)}
+                    placeholder="Ex: Ana Souza"
+                    style={{ width: '100%', padding: '8px', boxSizing: 'border-box', background: '#111', border: '1px solid #555', color: 'white', borderRadius: '4px' }}
+                />
+            </div>
+
+            {/* NOVO CAMPO DE DATA */}
+            <div style={{ marginBottom: '15px' }}>
+                <label style={{ display: 'block', marginBottom: '5px', color: '#ccc' }}>Data da Entrega:</label>
+                <input
+                    type="datetime-local"
+                    value={dataEntrega}
+                    onChange={(e) => setDataEntrega(e.target.value)}
                     style={{ width: '100%', padding: '8px', boxSizing: 'border-box', background: '#111', border: '1px solid #555', color: 'white', borderRadius: '4px' }}
                 />
             </div>
 
             {Object.keys(cart).length === 0 ? (
-                <p style={{ color: '#666', fontStyle: 'italic' }}>Seu carrinho está vazio.</p>
+                <p style={{ color: '#666', fontStyle: 'italic' }}>Nenhum item selecionado.</p>
             ) : (
                 <ul style={{ listStyle: 'none', padding: 0, maxHeight: '400px', overflowY: 'auto' }}>
                     {Object.keys(cart).map(id => {
@@ -241,7 +280,7 @@ function App() {
                       cursor: Object.keys(cart).length === 0 ? 'not-allowed' : 'pointer'
                     }}
                 >
-                    Finalizar Pedido
+                    Agendar Encomenda
                 </button>
             </div>
           </div>

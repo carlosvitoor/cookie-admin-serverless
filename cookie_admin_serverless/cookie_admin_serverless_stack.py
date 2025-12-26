@@ -5,6 +5,8 @@ from aws_cdk import (
     aws_apigatewayv2 as apigw,
     aws_apigatewayv2_integrations as integrations,
     aws_s3 as s3,
+    aws_cloudfront as cloudfront,  # <--- NOVO
+    aws_cloudfront_origins as origins,  # <--- NOVO
     aws_logs as logs,
     CfnOutput,
     RemovalPolicy,
@@ -51,10 +53,23 @@ class CookieAdminServerlessStack(Stack):
                                 auto_delete_objects=True
                                 )
 
-        # Configuração de Origem (CORS) para o Bucket
+        # --- NOVO: CloudFront (HTTPS Seguro) ---
+        # Isso cria uma URL https://d123...cloudfront.net que acessa seu bucket
+        site_distribution = cloudfront.Distribution(self, "SiteDistribution",
+                                                    default_behavior=cloudfront.BehaviorOptions(
+                                                        origin=origins.S3Origin(site_bucket),
+                                                        viewer_protocol_policy=cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+                                                        allowed_methods=cloudfront.AllowedMethods.ALLOW_GET_HEAD,
+                                                    ),
+                                                    default_root_object="index.html",
+                                                    )
+        # ---------------------------------------
+
+        # Configuração de Origem (CORS)
         allowed_origin = "*"
         if environment_tag == 'prod':
-            allowed_origin = site_bucket.bucket_website_url
+            # Em prod, aceitamos apenas o site seguro
+            allowed_origin = f"https://{site_distribution.distribution_domain_name}"
 
         # 4. Lambda Principal
         cookie_handler = _lambda.Function(self, "CookieHandler",
@@ -72,7 +87,7 @@ class CookieAdminServerlessStack(Stack):
                                           )
         table.grant_read_write_data(cookie_handler)
 
-        # --- CORREÇÃO AQUI: Usando apigw.CorsHttpMethod ---
+        # API Gateway com CORS
         http_api = apigw.HttpApi(self, "CookieApi",
                                  api_name=f"CookieApi-{environment_tag}",
                                  cors_preflight=apigw.CorsPreflightOptions(
@@ -90,12 +105,12 @@ class CookieAdminServerlessStack(Stack):
 
         lambda_int = integrations.HttpLambdaIntegration("CookieIntegration", cookie_handler)
 
-        # Para rotas (add_routes), continuamos usando apigw.HttpMethod
         http_api.add_routes(path="/cookies", methods=[apigw.HttpMethod.ANY], integration=lambda_int)
         http_api.add_routes(path="/cookies/{id}", methods=[apigw.HttpMethod.ANY], integration=lambda_int)
         http_api.add_routes(path="/orders", methods=[apigw.HttpMethod.ANY], integration=lambda_int)
+        http_api.add_routes(path="/orders/{id}/status", methods=[apigw.HttpMethod.ANY],
+                            integration=lambda_int)  # Importante para avançar status
         http_api.add_routes(path="/logistics/routes", methods=[apigw.HttpMethod.ANY], integration=lambda_int)
-        # ----------------------------------------------
 
         # 5. Stream Lambda
         stream_handler = _lambda.Function(self, "StreamHandler",
@@ -119,5 +134,6 @@ class CookieAdminServerlessStack(Stack):
 
         # Outputs
         CfnOutput(self, "ApiUrl", value=http_api.url)
-        CfnOutput(self, "SiteUrl", value=site_bucket.bucket_website_url)
+        # O novo Output importante é este SiteUrlHTTPS
+        CfnOutput(self, "SiteUrlHTTPS", value=f"https://{site_distribution.distribution_domain_name}")
         CfnOutput(self, "SiteBucketName", value=site_bucket.bucket_name)
