@@ -47,7 +47,10 @@ def handler(event, context):
 
         # ROTA: /orders (Sales)
         elif path == '/orders':
-            if method == 'POST':
+            if method == 'GET':
+                result = order_service.list_active()
+                return response(200, result)
+            elif method == 'POST':
                 body = parse_body(event)
                 result = order_service.create_order(body)
                 return response(201, result)

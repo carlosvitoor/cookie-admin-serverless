@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import axios from 'axios'
 import { AdminPanel } from './components/AdminPanel'
 import { OrdersPanel } from './components/OrdersPanel'
+import { LogisticsPanel } from './components/LogisticsPanel' // <--- IMPORTAÇÃO NOVA
 
 // IMPORTANTE: Use a URL que aparecerá no terminal após o 'cdk deploy'
 const API_URL = "https://vqrrh1kjy3.execute-api.us-east-1.amazonaws.com";
@@ -9,11 +10,8 @@ const API_URL = "https://vqrrh1kjy3.execute-api.us-east-1.amazonaws.com";
 function App() {
   const [cookies, setCookies] = useState([])
   const [cart, setCart] = useState({})
-  const [cliente, setCliente] = useState('') // Vazio para forçar preenchimento
-
-  // MUDANÇA: Data de Entrega (String ISO)
+  const [cliente, setCliente] = useState('')
   const [dataEntrega, setDataEntrega] = useState('')
-
   const [view, setView] = useState('vendas')
 
   useEffect(() => {
@@ -81,7 +79,7 @@ function App() {
     try {
       const payload = {
         cliente_nome: cliente,
-        data_entrega: new Date(dataEntrega).toISOString(), // Formato ISO para o backend
+        data_entrega: new Date(dataEntrega).toISOString(),
         itens: itensPayload
       };
 
@@ -123,6 +121,15 @@ function App() {
             >
               Cozinha
             </button>
+
+            {/* --- NOVO BOTÃO LOGÍSTICA --- */}
+            <button
+              onClick={() => setView('logistica')}
+              style={{ background: view === 'logistica' ? '#646cff' : '#333', color: 'white', border: 'none', padding: '10px 20px', borderRadius: '5px', cursor: 'pointer' }}
+            >
+              Logística
+            </button>
+
             <button
               onClick={() => setView('admin')}
               style={{ background: view === 'admin' ? '#646cff' : '#333', color: 'white', border: 'none', padding: '10px 20px', borderRadius: '5px', cursor: 'pointer' }}
@@ -144,6 +151,11 @@ function App() {
       {/* --- MODO COZINHA --- */}
       {view === 'pedidos' && (
         <OrdersPanel apiUrl={API_URL} />
+      )}
+
+      {/* --- MODO LOGÍSTICA (NOVO) --- */}
+      {view === 'logistica' && (
+        <LogisticsPanel apiUrl={API_URL} />
       )}
 
       {/* --- MODO VENDAS (Encomendas) --- */}
@@ -226,7 +238,6 @@ function App() {
                 />
             </div>
 
-            {/* NOVO CAMPO DE DATA */}
             <div style={{ marginBottom: '15px' }}>
                 <label style={{ display: 'block', marginBottom: '5px', color: '#ccc' }}>Data da Entrega:</label>
                 <input
