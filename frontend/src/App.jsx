@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import axios from 'axios'
 
 // IMPORTANTE: Troque pela URL de DEV que você pegou no terminal
-const API_URL = "https://SUA-URL-DE-DEV.execute-api.us-east-1.amazonaws.com";
+const API_URL = "https://vqrrh1kjy3.execute-api.us-east-1.amazonaws.com";
 
 function App() {
   const [cookies, setCookies] = useState([])
