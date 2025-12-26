@@ -11,6 +11,7 @@ from aws_cdk import (
     Duration
 )
 from constructs import Construct
+from aws_cdk import aws_lambda_event_sources as eventsources
 
 
 class CookieAdminServerlessStack(Stack):
@@ -64,3 +65,28 @@ class CookieAdminServerlessStack(Stack):
 
         CfnOutput(self, "ApiUrl", value=http_api.url)
         CfnOutput(self, "BucketName", value=analytics_bucket.bucket_name)
+
+        stream_handler = _lambda.Function(self, "StreamHandler",
+                                          function_name=f"StreamHandler-{environment_tag}",
+                                          runtime=_lambda.Runtime.PYTHON_3_12,
+                                          handler="stream_handler.handler",  # Aponta para o novo arquivo
+                                          code=_lambda.Code.from_asset("src"),
+                                          environment={
+                                              "ANALYTICS_BUCKET_NAME": analytics_bucket.bucket_name
+                                          },
+                                          timeout=Duration.seconds(30),
+                                          log_retention=logs.RetentionDays.ONE_WEEK
+                                          )
+
+        # 3. Dar permissão de escrita no Bucket
+        analytics_bucket.grant_write(stream_handler)
+
+        # 4. Conectar o DynamoDB Stream na Lambda
+        # Isso faz a mágica: Sempre que o Dynamo mudar, a Lambda roda.
+        stream_handler.add_event_source(eventsources.DynamoEventSource(table,
+                                                                       starting_position=_lambda.StartingPosition.LATEST,
+                                                                       batch_size=5,
+                                                                       # Processa de 5 em 5 para economizar
+                                                                       bisect_batch_on_error=True,
+                                                                       retry_attempts=2
+                                                                       ))
