@@ -11,8 +11,7 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
 
-    # Permissões necessárias para autenticar na AWS via OIDC (se configurado)
-    # ou apenas para ler o repo.
+    # Permissões para ler o código e (opcional) usar OIDC
     permissions:
       id-token: write
       contents: read
@@ -26,7 +25,7 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Install CDK
+      - name: Install CDK Global
         run: npm install -g aws-cdk
 
       - name: Setup Python
@@ -34,9 +33,17 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Install Python Dependencies
+      # 1. Instala dependências da INFRAESTRUTURA (CDK, Boto3 para o script de deploy)
+      - name: Install CDK App Dependencies
         run: |
           pip install -r requirements.txt
+
+      # 2. CORREÇÃO DO ERRO: Instala dependências da LAMBDA dentro da pasta src/
+      # Isso garante que o Pydantic vá junto com o código no zip final
+      - name: Install Lambda Dependencies (Vendorize)
+        run: |
+          echo "Instalando dependências da Lambda em src/..."
+          pip install -r src/requirements.txt -t src/
 
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -45,7 +52,7 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: us-east-1
 
-      # --- LÓGICA DE SELEÇÃO DE AMBIENTE ---
+      # 3. Lógica para definir se é Dev, Homol ou Prod
       - name: Determine Environment
         id: env-selector
         run: |
@@ -60,8 +67,8 @@ jobs:
             echo "Deploying to DEVELOPMENT"
           fi
 
-      # --- DEPLOY DINÂMICO ---
+      # 4. O Deploy final
       - name: CDK Deploy
         run: |
-          # Passamos a variavel ENV_TAG descoberta acima para o contexto (-c config=...)
+          # A flag -c config=... passa o ambiente para o app.py
           cdk deploy --require-approval never -c config=${{ env.ENV_TAG }}
