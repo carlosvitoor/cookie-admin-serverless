@@ -1,5 +1,4 @@
 import uuid
-import json
 from decimal import Decimal
 from datetime import datetime
 
@@ -14,25 +13,39 @@ class CatalogService:
 
     def create_product(self, payload: dict) -> dict:
         """
-        Cria um novo Cookie no catálogo.
+        Cria um novo Cookie no catálogo, garantindo unicidade do sabor.
         """
-        # Validação básica de entrada
-        if 'sabor' not in payload or 'preco_venda' not in payload:
+        # 1. Validação de Campos
+        raw_sabor = payload.get('sabor')
+        if not raw_sabor or 'preco_venda' not in payload:
             raise BusinessRuleException("Campos obrigatórios: sabor, preco_venda.")
 
-        cookie_id = str(uuid.uuid4())
+        # 2. Sanitização (Padronização do Nome)
+        # "  red velvet  " -> "Red Velvet"
+        sabor_formatado = raw_sabor.strip().title()
 
-        # Converte para Decimal para evitar erro no DynamoDB
+        # 3. Validação de Unicidade (Regra Sênior)
+        # Verifica se já existe ANTES de criar
+        existentes = self.repo.find_by_flavor(sabor_formatado)
+        if existentes:
+            raise BusinessRuleException(f"O sabor '{sabor_formatado}' já está cadastrado.")
+
+        # 4. Conversão de Tipos
         try:
             preco = Decimal(str(payload['preco_venda']))
             custo = Decimal(str(payload.get('custo_producao', '0.00')))
-        except:
-            raise BusinessRuleException("Preço ou custo inválido.")
 
+            if preco < 0 or custo < 0:
+                raise ValueError
+        except:
+            raise BusinessRuleException("Preço ou custo inválido (devem ser números positivos).")
+
+        # 5. Criação do Objeto
+        cookie_id = str(uuid.uuid4())
         item = {
             'id': cookie_id,
             'tipo_item': 'COOKIE',
-            'sabor': payload['sabor'],
+            'sabor': sabor_formatado,  # Salvamos o formatado
             'descricao': payload.get('descricao', ''),
             'preco_venda': preco,
             'custo_producao': custo,
@@ -42,11 +55,17 @@ class CatalogService:
 
         self.repo.save(item)
 
-        # Retorna o dict, mas converte Decimal para float/str para serialização JSON se necessário no controller
-        return item
+        # Conversão simples para retorno JSON
+        item_retorno = item.copy()
+        item_retorno['preco_venda'] = float(preco)
+        item_retorno['custo_producao'] = float(custo)
+
+        return item_retorno
 
     def list_all(self) -> list:
-        """
-        Retorna todos os cookies ativos.
-        """
-        return self.repo.list_active()
+        # A listagem também deve converter Decimals para serializar no JSON
+        items = self.repo.list_active()
+        for i in items:
+            if 'preco_venda' in i: i['preco_venda'] = float(i['preco_venda'])
+            if 'custo_producao' in i: i['custo_producao'] = float(i['custo_producao'])
+        return items
