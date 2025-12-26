@@ -10,8 +10,8 @@ from aws_cdk import (
     aws_s3 as s3,
     aws_logs as logs,
     aws_lambda_event_sources as eventsources,
-    aws_cloudfront as cloudfront,
-    aws_cloudfront_origins as origins,
+    # aws_cloudfront as cloudfront, # Comentado temporariamente
+    # aws_cloudfront_origins as origins, # Comentado temporariamente
 )
 from constructs import Construct
 
@@ -22,26 +22,24 @@ class CookieAdminServerlessStack(Stack):
         super().__init__(scope, construct_id, **kwargs)
 
         # ========================================================================
-        # 1. CAMADA DE DADOS (DYNAMODB)
+        # 1. DYNAMODB
         # ========================================================================
         table = dynamodb.Table(self, "CookiesTable",
                                partition_key=dynamodb.Attribute(name="id", type=dynamodb.AttributeType.STRING),
-                               removal_policy=RemovalPolicy.DESTROY,  # Em PROD real, mude para RETAIN
+                               removal_policy=RemovalPolicy.DESTROY,
                                billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
-                               stream=dynamodb.StreamViewType.NEW_AND_OLD_IMAGES  # Necessário para o Analytics
+                               stream=dynamodb.StreamViewType.NEW_AND_OLD_IMAGES
                                )
 
         # ========================================================================
-        # 2. CAMADA DE ANALYTICS (DATA LAKE)
+        # 2. ANALYTICS (DATA LAKE)
         # ========================================================================
-        # Bucket para salvar o histórico de vendas (OLAP)
         analytics_bucket = s3.Bucket(self, "AnalyticsBucket",
                                      bucket_name=f"cookie-admin-datalake-{environment_tag}",
                                      removal_policy=RemovalPolicy.DESTROY,
                                      auto_delete_objects=True
                                      )
 
-        # Lambda que processa o Stream do Dynamo e joga no S3
         stream_handler = _lambda.Function(self, "StreamHandler",
                                           function_name=f"StreamHandler-{environment_tag}",
                                           runtime=_lambda.Runtime.PYTHON_3_12,
@@ -51,10 +49,9 @@ class CookieAdminServerlessStack(Stack):
                                               "ANALYTICS_BUCKET_NAME": analytics_bucket.bucket_name
                                           },
                                           timeout=Duration.seconds(30),
-                                          log_retention=logs.RetentionDays.ONE_WEEK  # FinOps: Limpa logs antigos
+                                          log_retention=logs.RetentionDays.ONE_WEEK
                                           )
 
-        # Permissões do Stream
         analytics_bucket.grant_write(stream_handler)
         stream_handler.add_event_source(eventsources.DynamoEventSource(table,
                                                                        starting_position=_lambda.StartingPosition.LATEST,
@@ -64,39 +61,36 @@ class CookieAdminServerlessStack(Stack):
                                                                        ))
 
         # ========================================================================
-        # 3. CAMADA DE FRONTEND (S3 + CLOUDFRONT)
+        # 3. FRONTEND (S3 PURO - MODO WEBSITE)
         # ========================================================================
-        # Bucket que hospeda o site React
+        # Alteração: Public Read Access ativado para funcionar sem CloudFront
         site_bucket = s3.Bucket(self, "SiteBucket",
                                 bucket_name=f"cookie-admin-site-{environment_tag}",
-                                website_index_document="index.html",
-                                public_read_access=False,
-                                block_public_access=s3.BlockPublicAccess.BLOCK_ALL,
+                                website_index_document="index.html",  # Ativa modo hospedagem
+                                public_read_access=True,  # ATENÇÃO: Bucket Público
+                                block_public_access=s3.BlockPublicAccess(
+                                    block_public_acls=False,
+                                    block_public_policy=False,
+                                    ignore_public_acls=False,
+                                    restrict_public_buckets=False
+                                ),
                                 removal_policy=RemovalPolicy.DESTROY,
                                 auto_delete_objects=True
                                 )
 
-        # CloudFront (CDN) - Distribui o site mundialmente via HTTPS
-        distribution = cloudfront.Distribution(self, "SiteDistribution",
-                                               default_behavior=cloudfront.BehaviorOptions(
-                                                   origin=origins.S3Origin(site_bucket),
-                                                   viewer_protocol_policy=cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
-                                               ),
-                                               default_root_object="index.html",
-                                               )
+        # CloudFront removido temporariamente devido ao bloqueio da conta AWS
+        # distribution = ...
 
         # ========================================================================
-        # 4. CAMADA DE BACKEND (API)
+        # 4. BACKEND (API)
         # ========================================================================
 
-        # Definição Dinâmica de CORS (Segurança)
-        # Se for PROD, só aceita chamadas vindas do CloudFront.
-        # Se for DEV, aceita tudo ('*') para facilitar testes locais.
+        # Como não temos CloudFront, o CORS deve aceitar a URL do S3 ou '*'
         allowed_origin = "*"
         if environment_tag == 'prod':
-            allowed_origin = f"https://{distribution.distribution_domain_name}"
+            # Em prod, pegamos a URL do site S3
+            allowed_origin = site_bucket.bucket_website_url
 
-        # Lambda Principal (Controller da API)
         cookie_handler = _lambda.Function(self, "CookieHandler",
                                           function_name=f"CookieHandler-{environment_tag}",
                                           runtime=_lambda.Runtime.PYTHON_3_12,
@@ -105,16 +99,14 @@ class CookieAdminServerlessStack(Stack):
                                           environment={
                                               "TABLE_NAME": table.table_name,
                                               "ENV_TYPE": environment_tag,
-                                              "ALLOWED_ORIGIN": allowed_origin  # Injeção da URL segura
+                                              "ALLOWED_ORIGIN": allowed_origin
                                           },
                                           timeout=Duration.seconds(10),
                                           log_retention=logs.RetentionDays.ONE_WEEK
                                           )
 
-        # Permissão para a Lambda ler/escrever na tabela
         table.grant_read_write_data(cookie_handler)
 
-        # API Gateway (HTTP API - Mais barato e rápido que REST API)
         api = apigw.HttpApi(self, "CookieAdminApi",
                             api_name=f"CookieAdminApi-{environment_tag}",
                             default_integration=integrations.HttpLambdaIntegration(
@@ -123,9 +115,10 @@ class CookieAdminServerlessStack(Stack):
                             )
 
         # ========================================================================
-        # 5. OUTPUTS (Informações Úteis)
+        # 5. OUTPUTS
         # ========================================================================
         CfnOutput(self, "ApiUrl", value=api.url)
-        CfnOutput(self, "SiteUrl", value=f"https://{distribution.distribution_domain_name}")
-        CfnOutput(self, "SiteBucketName", value=site_bucket.bucket_name)
-        CfnOutput(self, "DataLakeBucketName", value=analytics_bucket.bucket_name)
+        # Agora a URL do site é direta do Bucket S3
+        CfnOutput(self, "SiteUrl", value=site_bucket.bucket_website_url)
+        CfnOutput(self, "SiteBucketName",
+                  value=site_bucket.bucket_website_url)  # Usando a URL aqui para facilitar o script de deploy se precisar
