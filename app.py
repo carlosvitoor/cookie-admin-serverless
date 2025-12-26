@@ -1,30 +1,24 @@
+#!/usr/bin/env python3
 import os
 import aws_cdk as cdk
-# ATENÇÃO: Verifique se o nome da pasta gerada é 'cookie_admin_serverless' ou 'cookie_admin'
-# O CDK usa o nome da pasta pai. Ajuste o import abaixo conforme o nome da pasta criada.
 from cookie_admin_serverless.cookie_admin_serverless_stack import CookieAdminServerlessStack
 
 app = cdk.App()
 
-# DEV
-CookieAdminServerlessStack(app, "CookieAdmin-Dev",
-    stack_name="CookieAdmin-Dev",
-    environment_tag="dev",
-    env=cdk.Environment(account=os.getenv('CDK_DEFAULT_ACCOUNT'), region='us-east-1')
-)
+# Lendo o contexto passado via linha de comando (-c config=dev|homol|prod)
+# Se não passar nada, assume 'dev' por segurança.
+env_tag = app.node.try_get_context("config") or "dev"
 
-# STAGING
-CookieAdminServerlessStack(app, "CookieAdmin-Staging",
-    stack_name="CookieAdmin-Staging",
-    environment_tag="staging",
-    env=cdk.Environment(account=os.getenv('CDK_DEFAULT_ACCOUNT'), region='us-east-1')
-)
+# Define o nome da Stack baseado no ambiente
+# Ex: CookieAdmin-Dev, CookieAdmin-Homol, CookieAdmin-Prod
+stack_name = f"CookieAdmin-{env_tag.capitalize()}"
 
-# PROD
-CookieAdminServerlessStack(app, "CookieAdmin-Prod",
-    stack_name="CookieAdmin-Prod",
-    environment_tag="prod",
-    env=cdk.Environment(account=os.getenv('CDK_DEFAULT_ACCOUNT'), region='us-east-1')
+print(f"Synthesizing stack for environment: {env_tag}")
+
+CookieAdminServerlessStack(app, stack_name,
+    environment_tag=env_tag, # Passamos a tag para dentro da classe
+    # Se quiser fixar conta/região, descomente abaixo:
+    # env=cdk.Environment(account='123456789012', region='us-east-1'),
 )
 
 app.synth()
