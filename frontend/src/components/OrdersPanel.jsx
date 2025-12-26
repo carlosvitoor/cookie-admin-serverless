@@ -14,6 +14,13 @@ export function OrdersPanel({ apiUrl }) {
   const fetchOrders = async () => {
     try {
       const response = await axios.get(`${apiUrl}/orders`);
+
+      // PROTEÇÃO 1: Se o backend devolver algo que não é lista (ex: erro), não tenta ordenar
+      if (!Array.isArray(response.data)) {
+        console.error("Formato inválido recebido do backend:", response.data);
+        return;
+      }
+
       // Ordena: Data de Entrega mais próxima primeiro
       const sorted = response.data.sort((a, b) => new Date(a.data_entrega) - new Date(b.data_entrega));
       setOrders(sorted);
@@ -46,14 +53,13 @@ export function OrdersPanel({ apiUrl }) {
 
   const getStatusColor = (status) => {
     switch (status) {
-      case 'RECEBIDO': return '#ffc107'; // Amarelo
-      case 'EM_PREPARO': return '#17a2b8'; // Azul (Cozinhando)
-      case 'EM_ROTA': return '#6f42c1'; // Roxo (Saiu para entrega)
+      case 'RECEBIDO': return '#ffc107';
+      case 'EM_PREPARO': return '#17a2b8';
+      case 'EM_ROTA': return '#6f42c1';
       default: return '#ccc';
     }
   };
 
-  // Calcula quanto tempo falta ou se atrasou
   const getTimeStatus = (dataEntregaIso) => {
     if (!dataEntregaIso) return { text: 'Sem data', color: '#888' };
 
@@ -63,22 +69,17 @@ export function OrdersPanel({ apiUrl }) {
     const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
     const diffDays = Math.floor(diffHours / 24);
 
-    // Formatação da Data Legível
     const dateStr = entrega.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
 
     if (diffMs < 0) {
         return { text: `ATRASADO! Era para ${dateStr}`, color: '#dc3545', border: '2px solid red' };
     }
-
     if (diffHours < 2) {
-        // Menos de 2h para entregar: Urgente
         return { text: `URGENTE: ${dateStr}`, color: '#fd7e14', border: '2px solid orange' };
     }
-
     if (diffDays >= 1) {
         return { text: `Agendado: ${dateStr}`, color: '#28a745', border: '1px dashed #444' };
     }
-
     return { text: `Hoje às ${entrega.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}`, color: '#28a745', border: '1px dashed #444' };
   };
 
@@ -107,11 +108,12 @@ export function OrdersPanel({ apiUrl }) {
                     </div>
 
                     <ul style={{ paddingLeft: '20px', margin: '10px 0', color: '#ddd' }}>
-                        {order.itens.map((item, idx) => (
+                        {/* PROTEÇÃO 2: Só faz o map se itens existir e for array */}
+                        {Array.isArray(order.itens) ? order.itens.map((item, idx) => (
                             <li key={idx} style={{ marginBottom: '5px' }}>
                                 <strong>{item.qtd}x</strong> {item.sabor}
                             </li>
-                        ))}
+                        )) : <li style={{color: 'red'}}>Erro: Itens não encontrados</li>}
                     </ul>
 
                     <div style={{ marginTop: '15px', display: 'flex', gap: '10px' }}>
