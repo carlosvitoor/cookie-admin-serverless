@@ -140,7 +140,6 @@ function App() {
         </div>
       </header>
 
-      {/* --- CONTEÚDO (Igual ao anterior) --- */}
       {view === 'admin' && <AdminPanel apiUrl={API_URL} cookies={cookies} onCookieSaved={handleCookieSaved} />}
       {view === 'pedidos' && <OrdersPanel apiUrl={API_URL} />}
       {view === 'logistica' && <LogisticsPanel apiUrl={API_URL} />}
