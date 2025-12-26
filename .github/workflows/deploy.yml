@@ -1,25 +1,28 @@
-name: Deploy Multi-Env
+name: Deploy Infrastructure
 
 on:
   push:
-    # O deploy acontece quando código entra nessas branches
     branches:
-      - main
-      - develop
-      - 'release/**' # Qualquer branch que comece com release/ (ex: release/v1.0)
+      - develop        # Deploy em DEV
+      - 'release/*'    # Deploy em HOMOLOG
+      - main           # Deploy em PROD
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
+
+    # Permissões necessárias para autenticar na AWS via OIDC (se configurado)
+    # ou apenas para ler o repo.
     permissions:
+      id-token: write
       contents: read
 
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v3
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - name: Setup Node.js (CDK dependency)
+        uses: actions/setup-node@v3
         with:
           node-version: '20'
 
@@ -27,41 +30,38 @@ jobs:
         run: npm install -g aws-cdk
 
       - name: Setup Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v4
         with:
           python-version: '3.12'
-          cache: 'pip'
 
-      - name: Install Requirements
-        run: pip install -r requirements.txt
-
-      # LÓGICA DE SELEÇÃO DE AMBIENTE
-      - name: Determine Target Stack
-        id: target
+      - name: Install Python Dependencies
         run: |
-          # Se for a branch MAIN -> PROD
+          pip install -r requirements.txt
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      # --- LÓGICA DE SELEÇÃO DE AMBIENTE ---
+      - name: Determine Environment
+        id: env-selector
+        run: |
           if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
-            echo "STACK_NAME=CookieAdmin-Prod" >> $GITHUB_ENV
+            echo "ENV_TAG=prod" >> $GITHUB_ENV
             echo "Deploying to PRODUCTION"
-          
-          # Se for a branch DEVELOP -> DEV
-          elif [[ "${{ github.ref }}" == "refs/heads/develop" ]]; then
-            echo "STACK_NAME=CookieAdmin-Dev" >> $GITHUB_ENV
-            echo "Deploying to DEVELOPMENT"
-          
-          # Se for branch RELEASE -> STAGING
           elif [[ "${{ github.ref }}" == *"release/"* ]]; then
-            echo "STACK_NAME=CookieAdmin-Staging" >> $GITHUB_ENV
-            echo "Deploying to STAGING (Homolog)"
-            
+            echo "ENV_TAG=homol" >> $GITHUB_ENV
+            echo "Deploying to HOMOLOGATION"
           else
-            echo "Branch desconhecida para deploy automático."
-            exit 1
+            echo "ENV_TAG=dev" >> $GITHUB_ENV
+            echo "Deploying to DEVELOPMENT"
           fi
 
+      # --- DEPLOY DINÂMICO ---
       - name: CDK Deploy
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          AWS_DEFAULT_REGION: "us-east-1"
-        run: cdk deploy ${{ env.STACK_NAME }} --require-approval never
+        run: |
+          # Passamos a variavel ENV_TAG descoberta acima para o contexto (-c config=...)
+          cdk deploy --require-approval never -c config=${{ env.ENV_TAG }}
