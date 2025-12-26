@@ -1,7 +1,7 @@
-import boto3
+from datetime import datetime
 
+from boto3.dynamodb.conditions import Attr
 from .base_repository import DynamoDBRepository
-from botocore.exceptions import ClientError
 
 class CatalogRepository(DynamoDBRepository):
     def get_by_id(self, cookie_id: str):
@@ -12,7 +12,45 @@ class CatalogRepository(DynamoDBRepository):
         self.table.put_item(Item=item)
 
     def list_active(self):
-        # Aqui abstraimos a query do Dynamo
         return self.table.scan(
-            FilterExpression=boto3.dynamodb.conditions.Attr('tipo_item').eq('COOKIE')
+            FilterExpression=Attr('tipo_item').eq('COOKIE') & Attr('status').eq('ATIVO')
         ).get('Items', [])
+
+    def find_by_flavor(self, sabor: str):
+        """
+        Busca um cookie pelo nome exato (case sensitive no banco,
+        mas vamos tratar no service).
+        """
+        response = self.table.scan(
+            FilterExpression=Attr('tipo_item').eq('COOKIE') & Attr('sabor').eq(sabor)
+        )
+        return response.get('Items', [])
+
+    def update(self, cookie_id: str, update_dict: dict):
+        """
+        Monta uma query de Update dinâmica baseada nos campos enviados.
+        """
+        update_expression = "SET "
+        expression_values = {}
+        expression_names = {}
+
+        # Constrói a query dinamicamente (ex: SET #p = :p, #c = :c)
+        for key, value in update_dict.items():
+            attr_name = f"#{key}"
+            attr_value = f":{key}"
+
+            update_expression += f"{attr_name} = {attr_value}, "
+            expression_values[attr_value] = value
+            expression_names[attr_name] = key
+
+        # Remove a última vírgula e adiciona data de atualização
+        update_expression += "#updated_at = :updated_at"
+        expression_values[':updated_at'] = datetime.now().isoformat()
+        expression_names['#updated_at'] = 'atualizado_em'
+
+        self.table.update_item(
+            Key={'id': cookie_id},
+            UpdateExpression=update_expression,
+            ExpressionAttributeNames=expression_names,
+            ExpressionAttributeValues=expression_values
+        )
