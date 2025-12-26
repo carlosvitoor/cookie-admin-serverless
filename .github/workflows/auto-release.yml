@@ -1,0 +1,59 @@
+name: Auto Release & Promote to Prod
+
+on:
+  push:
+    branches:
+      - develop # Gatilho: Quando um PR de feature é mergeado na develop
+
+jobs:
+  create-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write      # Para criar branches
+      pull-requests: write # Para abrir PRs
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Necessário para histórico do Git
+
+      - name: Configure Git Bot
+        run: |
+          git config user.name "GitHub Actions Bot"
+          git config user.email "actions@github.com"
+
+      - name: Cut Release Branch
+        id: create_release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Gera uma versão baseada em Data/Hora (Ex: v20240520-1430)
+          VERSION="v$(date +'%Y%m%d-%H%M')"
+          BRANCH_NAME="release/$VERSION"
+          
+          echo "🚀 Iniciando criação da release: $BRANCH_NAME"
+
+          # 1. Cria a branch de release a partir da develop atual
+          git checkout -b $BRANCH_NAME
+          
+          # 2. Envia a branch para o GitHub
+          # IMPORTANTE: Esse push vai acionar o 'deploy.yml' automaticamente,
+          # fazendo o deploy no ambiente de STAGING.
+          git push origin $BRANCH_NAME
+
+          echo "✅ Branch de Release criada e enviada. Deploy de Staging iniciado."
+          
+          # 3. Abre o PR para a Main (Produção)
+          # O PR fica esperando sua aprovação manual.
+          echo "🔀 Abrindo PR para Produção..."
+          
+          gh pr create \
+            --base main \
+            --head $BRANCH_NAME \
+            --title "Release $VERSION [Staging -> Prod]" \
+            --body "🤖 **Automação de Release**
+            
+            1. O código da develop foi promovido para a branch \`$BRANCH_NAME\`.
+            2. O ambiente de **STAGING** está sendo atualizado agora.
+            3. **AÇÃO:** Teste em Staging. Se estiver tudo ok, aprove este PR para fazer o deploy em **PRODUÇÃO**."

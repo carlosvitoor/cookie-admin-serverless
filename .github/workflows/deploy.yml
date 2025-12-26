@@ -1,20 +1,12 @@
-name: Multi-Env Deploy
+name: Deploy Multi-Env
 
 on:
   push:
-    branches: [ "main", "develop" ]
-  # Permite rodar manualmente se precisar criar a staging sem branch especifica
-  workflow_dispatch:
-    inputs:
-      environment:
-        description: 'Environment to deploy'
-        required: true
-        default: 'dev'
-        type: choice
-        options:
-        - dev
-        - staging
-        - prod
+    # O deploy acontece quando código entra nessas branches
+    branches:
+      - main
+      - develop
+      - 'release/**' # Qualquer branch que comece com release/ (ex: release/v1.0)
 
 jobs:
   deploy:
@@ -43,23 +35,28 @@ jobs:
       - name: Install Requirements
         run: pip install -r requirements.txt
 
-      # Lógica para definir qual Stack será deployada
+      # LÓGICA DE SELEÇÃO DE AMBIENTE
       - name: Determine Target Stack
         id: target
         run: |
+          # Se for a branch MAIN -> PROD
           if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
             echo "STACK_NAME=CookieAdmin-Prod" >> $GITHUB_ENV
             echo "Deploying to PRODUCTION"
+          
+          # Se for a branch DEVELOP -> DEV
           elif [[ "${{ github.ref }}" == "refs/heads/develop" ]]; then
             echo "STACK_NAME=CookieAdmin-Dev" >> $GITHUB_ENV
             echo "Deploying to DEVELOPMENT"
-          elif [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-             # Capitalize first letter for stack name convention
-             ENV_INPUT=${{ inputs.environment }}
-             CAP_ENV="$(tr '[:lower:]' '[:upper:]' <<< ${ENV_INPUT:0:1})${ENV_INPUT:1}"
-             echo "STACK_NAME=CookieAdmin-$CAP_ENV" >> $GITHUB_ENV
-          else
+          
+          # Se for branch RELEASE -> STAGING
+          elif [[ "${{ github.ref }}" == *"release/"* ]]; then
             echo "STACK_NAME=CookieAdmin-Staging" >> $GITHUB_ENV
+            echo "Deploying to STAGING (Homolog)"
+            
+          else
+            echo "Branch desconhecida para deploy automático."
+            exit 1
           fi
 
       - name: CDK Deploy
@@ -67,5 +64,4 @@ jobs:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           AWS_DEFAULT_REGION: "us-east-1"
-        # O comando abaixo deploya APENAS a stack correta, não todas
         run: cdk deploy ${{ env.STACK_NAME }} --require-approval never

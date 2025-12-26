@@ -1,0 +1,56 @@
+name: Feature CI & Auto-PR
+
+on:
+  push:
+    branches:
+      - 'feature/**'  # Roda em qualquer branch que comece com feature/
+
+jobs:
+  quality-check:
+    runs-on: ubuntu-latest
+    # Precisamos de permissão para criar PRs
+    permissions:
+      contents: read
+      pull-requests: write
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Dependencies
+        run: |
+          npm install -g aws-cdk
+          pip install -r requirements.txt
+
+      # 1. TESTE DE FUMAÇA (Smoke Test)
+      # Antes de abrir PR, verificamos se o código CDK compila sem erros
+      - name: Verify CDK Synth
+        run: cdk synth
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: "us-east-1"
+
+      # 2. AUTO-PR
+      # Se o synth passou, abrimos o PR automaticamente
+      - name: Create Pull Request
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }} # Token automático do GitHub
+        run: |
+          # Pega o nome da branch atual (ex: feature/login)
+          CURRENT_BRANCH=${{ github.ref_name }}
+          
+          echo "Tentando criar PR de $CURRENT_BRANCH para develop..."
+
+          # Tenta criar o PR. O "|| true" impede erro se o PR já existir.
+          gh pr create \
+            --base develop \
+            --head $CURRENT_BRANCH \
+            --title "Feat: $CURRENT_BRANCH" \
+            --body "PR criado automaticamente pela esteira de CI após validação de testes." \
+            || echo "PR já existe ou houve um erro controlado."
