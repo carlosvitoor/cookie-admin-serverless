@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import axios from 'axios';
 
-export function AdminPanel({ apiUrl, cookies, onUpdateList }) {
+export function AdminPanel({ apiUrl, cookies, onCookieSaved }) {
   const [editingId, setEditingId] = useState(null); // ID do cookie sendo editado
 
   const [formData, setFormData] = useState({
@@ -42,18 +42,24 @@ export function AdminPanel({ apiUrl, cookies, onUpdateList }) {
         custo_producao: parseFloat(formData.custo_producao)
       };
 
+      let savedData;
+
       if (editingId) {
         // --- MODO EDIÇÃO (PUT) ---
-        await axios.put(`${apiUrl}/cookies/${editingId}`, payload);
+        const response = await axios.put(`${apiUrl}/cookies/${editingId}`, payload);
+        savedData = response.data;
         alert(`Cookie "${payload.sabor}" atualizado com sucesso!`);
       } else {
         // --- MODO CRIAÇÃO (POST) ---
-        await axios.post(`${apiUrl}/cookies`, payload);
+        const response = await axios.post(`${apiUrl}/cookies`, payload);
+        savedData = response.data;
         alert('Cookie cadastrado com sucesso!');
       }
 
+      // ATUALIZAÇÃO OTIMISTA: Atualiza a lista na hora, sem esperar o banco
+      if (onCookieSaved) onCookieSaved(savedData);
+
       handleCancelEdit(); // Limpa form e estado
-      if (onUpdateList) onUpdateList(); // Recarrega a lista
 
     } catch (error) {
       console.error(error);

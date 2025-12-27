@@ -8,6 +8,7 @@ from enum import Enum
 class StatusPedido(str, Enum):
     RECEBIDO = "RECEBIDO"
     EM_PREPARO = "EM_PREPARO"
+    PRONTO = "PRONTO"
     EM_ROTA = "EM_ROTA"
     CONCLUIDO = "CONCLUIDO"
     EXTRAVIADO = "EXTRAVIADO"
